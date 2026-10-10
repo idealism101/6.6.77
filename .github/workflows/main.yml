@@ -1,1 +1,57 @@
+name: Build RMG payload (pa3q-S9380ZCU5BYI3)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "RMG TARGET 名称（默认本机 S25U 国行 6.6.77）"
+        required: false
+        default: "pa3q-S9380ZCU5BYI3"
+      api:
+        description: "Android API level（NDK 默认 35 = Android 15）"
+        required: false
+        default: "35"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Android NDK r27c (linux)
+        run: |
+          set -euo pipefail
+          NDK_VER="r27c"
+          NDK_ZIP="android-ndk-${NDK_VER}-linux.zip"
+          NDK_URL="https://dl.google.com/android/repository/${NDK_ZIP}"
+          echo "Downloading ${NDK_URL}"
+          curl -fsSL -o "/tmp/${NDK_ZIP}" "${NDK_URL}"
+          sudo apt-get update -qq && sudo apt-get install -y -qq unzip make >/dev/null
+          unzip -q "/tmp/${NDK_ZIP}" -d /opt
+          echo "ANDROID_NDK_HOME=/opt/android-ndk-${NDK_VER}" >> "$GITHUB_ENV"
+          echo "Installed NDK at /opt/android-ndk-${NDK_VER}"
+
+      - name: Build release payload (.so, hard-truncated to 104128 bytes)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          set -euo pipefail
+          TARGET="${{ github.event.inputs.target || 'pa3q-S9380ZCU5BYI3' }}"
+          API="${{ github.event.inputs.api || '35' }}"
+          make TARGET="$TARGET" API="$API" ANDROID_NDK_HOME="$ANDROID_NDK_HOME" release
+          OUT="build/${TARGET}/cve-2026-43499-app.release.so"
+          SIZE=$(stat -c %s "$OUT")
+          echo "Built $OUT -> $SIZE bytes (limit 104128)"
+          if [ "$SIZE" -ne 104128 ]; then
+            echo "::error::Size mismatch: expected exactly 104128, got $SIZE"
+            exit 1
+          fi
+
+      - name: Upload payload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cve-2026-43499-app-release
+          path: build/${{ github.event.inputs.target || 'pa3q-S9380ZCU5BYI3' }}/cve-2026-43499-app.release.so
+          if-no-files-found: error
 
